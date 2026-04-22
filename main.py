@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
-
 import os
 import urllib.request
 
@@ -10,26 +8,18 @@ if not os.path.exists('input.txt'):
     urllib.request.urlretrieve('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt', 'input.txt')
 
 
-# In[3]:
-
 with open('input.txt', 'r',encoding = 'utf-8') as f:
     text = f.read()
 
 
-# In[4]:
-
 print(text[:1000])
 
-
-# In[5]:
 
 # all the unique chars occuring int the corpus
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
 print(vocab_size)
 
-
-# In[6]:
 
 #tokenizing
 # encoder and decoder just like makemore architecture
@@ -44,22 +34,19 @@ decode = lambda l: ''.join([itos[i] for i in l])
 #print(encode("hello"))
 
 
-# In[7]:
-
 import torch
 data = torch.tensor(encode(text), dtype = torch.long)
 print(data.shape, data.dtype)
 print(data[:100])
 
 
-# In[8]:
 
 n = int(0.9*(len(data)))
 train_data = data[:n]
 val_data = data[n:]
 
 
-# In[1]:
+
 
 torch.manual_seed(42)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -110,8 +97,6 @@ for b in range(batch_size):
         target = yb[b:t]
 
 
-# In[2]:
-
 import torch 
 import torch.nn as nn
 from torch.nn import  functional as F
@@ -123,9 +108,13 @@ class BigramLanguageModel(nn.Module):
     def __init__(self, vocab_size):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.lm_head = nn.Linear(n_emb,vocab_size)
 
     def forward(self, idx, targets=None):
-        logits=  self.token_embedding_table(idx) # batch, time, channel
+        tok_emb = self.token_embedding_table(idx)
+        pos_emb = self.position_embedding_table(torch.arange(T,device = device))
+        x = tok_emb + pos_emb
+        logits=  self.lm_head(tok_emb) # batch, time, channel
         
         if targets is None:
             loss = None
@@ -150,7 +139,7 @@ class BigramLanguageModel(nn.Module):
 
         return idx   
 
-m = BigramLanguageModel(vocab_size)     
+m = BigramLanguageModel()     
 m = m.to(device)
 model = m
 logits, loss = m(xb,yb)
@@ -159,8 +148,6 @@ print(loss)
 
 print(decode(m.generate(idx = torch.zeros((1,1), dtype = torch.long, device=device),max_new_tokens = 100)[0].tolist()))
 
-
-# In[3]:
 
 optimizer = torch.optim.AdamW(m.parameters(), lr = 1e-3)
 batch_size = 32
@@ -188,9 +175,3 @@ for iter in range(max_iters):
 context = torch.zeros((1,1), dtype = torch.long, device =device)
 print(decode(m.generate(context,max_new_tokens = 500)[0].tolist()))
 
-
-# In[4]:
-
-
-
-# In[5]:
