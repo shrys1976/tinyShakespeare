@@ -1,9 +1,12 @@
 import os
+from turtle import forward
 import urllib.request
 
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+from torch.nn import MultiheadAttention, functional as F
+
+from main import head_size
 
 
 DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
@@ -40,8 +43,53 @@ def build_tokenizer(text):
 
     return chars, encode, decode
 
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads =nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj
 
-class 
+    def forward(self,x):
+
+        return torch.cat([h(x) for h in self.heads], dim = -1)
+
+
+
+class FeedForward(nn.Module):
+
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+
+            nn.Linear(n_embd,n_embd),
+            nn.Relu*(),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+
+class Block(nn.Module):
+
+    # transformer block
+
+    def __init__(self,n_embd, n_head):
+        # multi head attentions
+        # n_head -> number of embedding dims
+        # n_head -> number of attention heads
+
+        super().__init__()
+        head_size = n_embd // n_head
+        self.sa  =MultiheadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embd)
+
+
+    def forward(self, x):
+        # residual connection
+        x = x+self.sa(x)
+        x =x+self.ffwd(x)
+        return x
 
 
 
