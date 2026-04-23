@@ -2,7 +2,9 @@ import argparse
 
 import torch
 
-from main import BigramLanguageModel, RunConfig, apply_run_config, load_checkpoint
+from artifacts import load_checkpoint
+from config import RunConfig
+from main import BigramLanguageModel, apply_run_config
 
 
 def create_arg_parser() -> argparse.ArgumentParser:
