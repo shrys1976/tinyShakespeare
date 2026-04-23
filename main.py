@@ -55,6 +55,11 @@ class RunConfig:
     grad_clip: float = 1.0
     train_split: float = 0.9
     sample_tokens: int = 500
+    early_stop_patience_evals: int = 0
+    early_stop_min_delta: float = 0.0
+    max_wall_time_minutes: float = 0.0
+    hourly_cost_usd: float = 0.0
+    budget_cap_usd: float = 0.0
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -384,6 +389,11 @@ def create_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--grad-clip", type=float, default=None)
     parser.add_argument("--sample-tokens", type=int, default=None)
+    parser.add_argument("--early-stop-patience-evals", type=int, default=None)
+    parser.add_argument("--early-stop-min-delta", type=float, default=None)
+    parser.add_argument("--max-wall-time-minutes", type=float, default=None)
+    parser.add_argument("--hourly-cost-usd", type=float, default=None)
+    parser.add_argument("--budget-cap-usd", type=float, default=None)
     parser.add_argument("--resume", default="")
     return parser
 
@@ -409,6 +419,16 @@ def config_from_args(args: argparse.Namespace) -> RunConfig:
         config.grad_clip = args.grad_clip
     if args.sample_tokens is not None:
         config.sample_tokens = args.sample_tokens
+    if args.early_stop_patience_evals is not None:
+        config.early_stop_patience_evals = args.early_stop_patience_evals
+    if args.early_stop_min_delta is not None:
+        config.early_stop_min_delta = args.early_stop_min_delta
+    if args.max_wall_time_minutes is not None:
+        config.max_wall_time_minutes = args.max_wall_time_minutes
+    if args.hourly_cost_usd is not None:
+        config.hourly_cost_usd = args.hourly_cost_usd
+    if args.budget_cap_usd is not None:
+        config.budget_cap_usd = args.budget_cap_usd
     return config
 
 
@@ -459,12 +479,15 @@ def run_training(config: RunConfig, resume_path: str) -> None:
     metrics_file = run_paths["metrics"] / "metrics.csv"
     tokens_seen = max(0, start_step * batch_size * block_size)
     start_time = time.time()
+    no_improve_evals = 0
 
     latest_ckpt_path = run_paths["checkpoints"] / "latest.pt"
     best_ckpt_path = run_paths["checkpoints"] / "best.pt"
+    current_step = max(0, start_step)
 
     try:
         for step in range(start_step, max_iters):
+            current_step = step
             xb, yb = get_batch("train", train_data, val_data)
             _, loss = model(xb, yb)
 
@@ -522,6 +545,7 @@ def run_training(config: RunConfig, resume_path: str) -> None:
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    no_improve_evals = 0
                     save_checkpoint(
                         best_ckpt_path,
                         model,
@@ -538,6 +562,78 @@ def run_training(config: RunConfig, resume_path: str) -> None:
                         step,
                         val_loss,
                     )
+                else:
+                    no_improve_evals += 1
+
+                if (
+                    config.early_stop_patience_evals > 0
+                    and no_improve_evals >= config.early_stop_patience_evals
+                ):
+                    logger.info(
+                        "Early stop triggered at step %d after %d evals "
+                        "without improvement.",
+                        step,
+                        no_improve_evals,
+                    )
+                    save_checkpoint(
+                        latest_ckpt_path,
+                        model,
+                        optimizer,
+                        step,
+                        best_val_loss,
+                        config,
+                        chars,
+                        stoi,
+                        itos,
+                    )
+                    break
+
+                elapsed_hours = (time.time() - start_time) / 3600.0
+                estimated_cost = elapsed_hours * config.hourly_cost_usd
+                if (
+                    config.budget_cap_usd > 0
+                    and config.hourly_cost_usd > 0
+                    and estimated_cost >= config.budget_cap_usd
+                ):
+                    logger.info(
+                        "Budget cap reached at step %d (estimated $%.3f).",
+                        step,
+                        estimated_cost,
+                    )
+                    save_checkpoint(
+                        latest_ckpt_path,
+                        model,
+                        optimizer,
+                        step,
+                        best_val_loss,
+                        config,
+                        chars,
+                        stoi,
+                        itos,
+                    )
+                    break
+
+                if config.max_wall_time_minutes > 0:
+                    elapsed_minutes = (time.time() - start_time) / 60.0
+                    if elapsed_minutes >= config.max_wall_time_minutes:
+                        logger.info(
+                            "Wall-time cap reached at step %d "
+                            "(elapsed %.2f minutes).",
+                            step,
+                            elapsed_minutes,
+                        )
+                        save_checkpoint(
+                            latest_ckpt_path,
+                            model,
+                            optimizer,
+                            step,
+                            best_val_loss,
+                            config,
+                            chars,
+                            stoi,
+                            itos,
+                        )
+                        break
 
             should_checkpoint = (
                 step % config.checkpoint_interval == 0
@@ -561,7 +657,7 @@ def run_training(config: RunConfig, resume_path: str) -> None:
             interrupt_path,
             model,
             optimizer,
-            step,
+            current_step,
             best_val_loss,
             config,
             chars,
